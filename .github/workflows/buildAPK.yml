@@ -1,7 +1,7 @@
 name: Package Scratch GUI to APK
 
 on:
-  workflow_dispatch:  # 手动触发
+  workflow_dispatch:
 
 jobs:
   build:
@@ -26,6 +26,9 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
       - name: Install Cordova
         run: npm install -g cordova
 
@@ -33,13 +36,38 @@ jobs:
         run: |
           cordova create scratch-app org.scratch.gui.app "Scratch GUI"
           cd scratch-app
-          # 将构建好的网页复制到 Cordova 的 www 目录
+          # 清空默认的 www 目录并复制构建好的文件
+          rm -rf www/*
           cp -r ../build/* www/
           cordova platform add android
-          cordova build android --release
+          
+          # 添加必要的插件（可选）
+          cordova plugin add cordova-plugin-whitelist
+          cordova plugin add cordova-plugin-inappbrowser
+          
+          # 修改 config.xml 允许所有域名访问（Scratch 需要）
+          sed -i 's/<allow-intent href="http:\/\/\*\/" \/>/<allow-intent href="http:\/\/\*\/" \/><allow-navigation href="*" \/><access origin="*" \/>/g' config.xml
 
-      - name: Upload APK
+      - name: Build Android APK (Debug)
+        run: |
+          cd scratch-app
+          cordova build android
+
+      - name: Upload Debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: scratch-gui-app
+          name: scratch-gui-debug
+          path: scratch-app/platforms/android/app/build/outputs/apk/debug/*.apk
+          retention-days: 7
+
+      - name: Build Android APK (Release - unsigned)
+        run: |
+          cd scratch-app
+          cordova build android --release -- --packageType=apk
+
+      - name: Upload Release APK (unsigned)
+        uses: actions/upload-artifact@v4
+        with:
+          name: scratch-gui-release-unsigned
           path: scratch-app/platforms/android/app/build/outputs/apk/release/*.apk
+          retention-days: 7
