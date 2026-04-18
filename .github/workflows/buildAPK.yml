@@ -1,36 +1,45 @@
-name: Test Build
+name: Package Scratch GUI to APK
 
 on:
-  workflow_dispatch:
+  workflow_dispatch:  # 手动触发
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+      - name: Checkout Scratch GUI code
+        uses: actions/checkout@v4
 
-      - name: Set up JDK 17
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Build Scratch GUI
+        run: |
+          npm ci
+          npm run build
+
+      - name: Setup Java (for Cordova/Android)
         uses: actions/setup-java@v4
         with:
-          java-version: '17'
           distribution: 'temurin'
+          java-version: '17'
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
+      - name: Install Cordova
+        run: npm install -g cordova
 
-      - name: Build with Gradle
-        run: gradle assembleRelease --build-cache --parallel --daemon --warning-mode all
-
-      - name: Prepare APK
+      - name: Create Cordova project and add Android platform
         run: |
-          mkdir -p ${{ github.workspace }}/apk/
-          find . -path "*/build/outputs/apk/*.apk" -exec cp {} ${{ github.workspace }}/apk/ \;
+          cordova create scratch-app org.scratch.gui.app "Scratch GUI"
+          cd scratch-app
+          # 将构建好的网页复制到 Cordova 的 www 目录
+          cp -r ../build/* www/
+          cordova platform add android
+          cordova build android --release
 
-      - name: Upload APK to Artifact
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: com.github.tvbox.osc
-          path: ${{ github.workspace }}/apk/*.apk
-          retention-days: 7
+          name: scratch-gui-app
+          path: scratch-app/platforms/android/app/build/outputs/apk/release/*.apk
