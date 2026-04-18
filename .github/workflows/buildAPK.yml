@@ -1,20 +1,25 @@
 name: Test Build
 
 on:
-#  push:
-#    branches:
-#      - main
-#  pull_request:
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Debug - List all files
+        run: |
+          echo "Current directory: $(pwd)"
+          echo "=== Root directory contents ==="
+          ls -la
+          echo "=== Recursive search for gradlew ==="
+          find . -name "gradlew" 2>/dev/null || echo "gradlew not found"
+          echo "=== Recursive search for build.gradle ==="
+          find . -name "build.gradle*" 2>/dev/null || echo "build.gradle not found"
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -24,16 +29,22 @@ jobs:
 
       - name: Build with Gradle
         run: |
+          # 如果 gradlew 在子目录，先 cd 进去
+          if [ -f "android/gradlew" ]; then
+            cd android
+          elif [ -f "app/gradlew" ]; then
+            cd app
+          fi
+          
           chmod +x gradlew
           ./gradlew assembleRelease --build-cache --parallel --daemon --warning-mode all
 
       - name: Prepare APK
         run: |
           mkdir -p ${{ github.workspace }}/apk/
-          find app/build/outputs/apk -name "*.apk" -exec mv {} ${{ github.workspace }}/apk/ \;
+          find . -path "*/build/outputs/apk/*.apk" -exec cp {} ${{ github.workspace }}/apk/ \;
 
-      - name: Upload APK to Artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: com.github.tvbox.osc
           path: ${{ github.workspace }}/apk/*.apk
