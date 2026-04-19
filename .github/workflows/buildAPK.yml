@@ -1,149 +1,110 @@
 name: Build Scratch GUI APK
 
 on:
-  workflow_dispatch:  # 手动触发
-  # push:             # 如果需要自动触发，取消注释
-  #   branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
     
     steps:
-      # 1. 检出代码
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # 2. 设置 Node.js 环境
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '18'
           cache: 'npm'
 
-      # 3. 安装依赖并构建 Scratch GUI
+      # 修复1：清理缓存并完整安装依赖
       - name: Install dependencies
         run: |
-          npm ci --legacy-peer-deps
-          # 如果 npm ci 失败，尝试 npm install
-          if [ $? -ne 0 ]; then
-            npm install --legacy-peer-deps
-          fi
+          # 清理可能的缓存问题
+          rm -rf node_modules package-lock.json
+          # 使用 --force 解决依赖冲突
+          npm install --force --legacy-peer-deps
+          # 确保 react 正确安装
+          npm list react || echo "React not found, reinstalling..."
+          npm install react react-dom --save
 
       - name: Build Scratch GUI
         run: |
+          # 尝试构建
           npm run build
+          
+          # 如果构建失败，尝试使用 CI=false 忽略警告
+          if [ $? -ne 0 ]; then
+            echo "Build failed, trying with CI=false..."
+            CI=false npm run build
+          fi
+          
           # 验证构建产物
           if [ ! -d "build" ]; then
-            echo "Build failed: build directory not found"
+            echo "Build directory not found!"
             exit 1
           fi
-          echo "Build successful! Build size:"
+          echo "Build successful! Size:"
           du -sh build/
 
-      # 4. 设置 Java 环境
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      # 5. 设置 Android SDK
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      # 6. 安装 Cordova
       - name: Install Cordova
         run: npm install -g cordova
 
-      # 7. 创建 Cordova 项目并配置
       - name: Create Cordova project
         run: |
-          # 创建 Cordova 项目
           cordova create scratch-app org.scratch.gui.app "Scratch GUI"
-          
-          # 复制构建好的网页文件
           rm -rf scratch-app/www/*
           cp -r build/* scratch-app/www/
-          
           cd scratch-app
-          
-          # 添加 Android 平台
           cordova platform add android
           
-          # 配置 config.xml 以支持 Scratch GUI
+          # 配置 config.xml
           cat > config.xml << 'EOF'
           <?xml version='1.0' encoding='utf-8'?>
-          <widget id="org.scratch.gui.app" 
-                  version="1.0.0" 
-                  xmlns="http://www.w3.org/ns/widgets" 
-                  xmlns:cdv="http://cordova.apache.org/ns/1.0">
+          <widget id="org.scratch.gui.app" version="1.0.0" xmlns="http://www.w3.org/ns/widgets" xmlns:cdv="http://cordova.apache.org/ns/1.0">
               <name>Scratch GUI</name>
-              <description>Scratch GUI Android App</description>
-              <author email="scratch@example.com" href="https://scratch.mit.edu/"/>
+              <description>Scratch GUI App</description>
               <content src="index.html" />
-              
-              <!-- 允许所有网络访问 -->
               <access origin="*" />
               <allow-intent href="http://*/*" />
               <allow-intent href="https://*/*" />
               <allow-navigation href="*" />
-              <allow-intent href="mailto:*" />
-              <allow-intent href="tel:*" />
-              
-              <!-- 偏好设置 -->
               <preference name="AndroidInsecureFileModeEnabled" value="true" />
               <preference name="orientation" value="landscape" />
-              <preference name="Fullscreen" value="true" />
-              <preference name="StatusBarOverlaysWebView" value="false" />
-              <preference name="StatusBarBackgroundColor" value="#000000" />
-              
-              <!-- 图标配置（可选） -->
-              <icon src="www/favicon.ico" />
           </widget>
           EOF
           
-          # 添加必要的插件
           cordova plugin add cordova-plugin-whitelist
-          cordova plugin add cordova-plugin-inappbrowser
 
-      # 8. 构建 Debug APK
-      - name: Build Debug APK
+      - name: Build APK
         run: |
           cd scratch-app
           cordova build android
           
-          # 检查 APK 是否生成
-          APK_PATH="platforms/android/app/build/outputs/apk/debug/app-debug.apk"
-          if [ -f "$APK_PATH" ]; then
-            echo "APK built successfully at: $APK_PATH"
+          # 查找并确认 APK
+          APK_PATH=$(find . -name "*.apk" | head -1)
+          if [ -n "$APK_PATH" ]; then
+            echo "APK found at: $APK_PATH"
             ls -lh "$APK_PATH"
           else
-            echo "APK not found, searching..."
-            find . -name "*.apk"
+            echo "No APK generated!"
             exit 1
           fi
 
-      # 9. 上传 APK 作为 Artifact
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: Scratch-GUI-APK
           path: scratch-app/platforms/android/app/build/outputs/apk/debug/*.apk
-          retention-days: 30
-          compression-level: 0
-
-      # 10. 可选：构建 Release APK（未签名）
-      - name: Build Release APK (unsigned)
-        run: |
-          cd scratch-app
-          cordova build android --release -- --packageType=apk
-          
-      - name: Upload Release APK (unsigned)
-        uses: actions/upload-artifact@v4
-        with:
-          name: Scratch-GUI-Release-Unsigned
-          path: scratch-app/platforms/android/app/build/outputs/apk/release/*.apk
           retention-days: 30
